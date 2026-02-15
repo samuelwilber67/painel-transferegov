@@ -4,6 +4,7 @@ import unicodedata
 import pandas as pd
 
 
+# Colunas obrigatórias para o MVP funcionar
 REQUIRED_COLUMNS = [
     "no_instrumento",
     "subsituacao_instrumento",
@@ -25,9 +26,13 @@ REQUIRED_COLUMNS = [
     "cnpj",
     "ultimo_pagamento",
     "sem_desembolso",
-    "no_processo",
     "sem_pagamento_a_mais_de_150_dias",
     "situacao_inst_contratual",
+]
+
+# Colunas opcionais (se vierem, o app usa; se não vierem, não quebra)
+OPTIONAL_COLUMNS = [
+    "no_processo",  # NUP / Nº Processo
 ]
 
 MONEY_COLUMNS = [
@@ -47,13 +52,6 @@ FAIXAS_90_180 = "Acima de 90 até 180 dias"
 FAIXAS_180_365 = "Acima de 180 até 365 dias"
 FAIXAS_ACIMA_365 = "Acima de 365 dias"
 FAIXAS_SEM_DESEMBOLSO = "Sem Desembolso"
-
-FAIXAS_PADRAO = [
-    FAIXAS_ATE_90,
-    FAIXAS_90_180,
-    FAIXAS_180_365,
-    FAIXAS_ACIMA_365,
-]
 
 
 def _normalize_str(s: pd.Series) -> pd.Series:
@@ -76,7 +74,6 @@ def _to_number(s: pd.Series) -> pd.Series:
     s = s.replace({"-": pd.NA, "—": pd.NA, "": pd.NA})
 
     # Se vier no formato PT-BR com milhar e vírgula decimal
-    # Ex.: 1.234,56 -> 1234.56
     s = s.str.replace(".", "", regex=False)
     s = s.str.replace(",", ".", regex=False)
 
@@ -97,7 +94,6 @@ def _key(s: str) -> str:
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
     s = s.lower()
-    # troca pontuação por espaço
     s = "".join(ch if ch.isalnum() else " " for ch in s)
     s = " ".join(s.split())
     return s
@@ -108,8 +104,8 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     Renomeia colunas do XLSX exportado (com espaços/acentos/maiúsculas) para snake_case interno.
     Usa matching por chave normalizada para tolerar variações do painel.
     """
-    # Mapa por "chave normalizada" -> nome interno
     normalized_map = {
+        # Identificação
         _key("Nº Instrumento"): "no_instrumento",
         _key("No Instrumento"): "no_instrumento",
         _key("Número Instrumento"): "no_instrumento",
@@ -118,12 +114,12 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
         _key("SubSituação Instrumento"): "subsituacao_instrumento",
         _key("Subsituação Instrumento"): "subsituacao_instrumento",
         _key("Sub Situacao Instrumento"): "subsituacao_instrumento",
-        _key("SubSitucao Instrumento"): "subsituacao_instrumento",
 
         _key("Link Externo"): "link_externo",
 
         _key("Possui Obra"): "possui_obra",
 
+        # Financeiro
         _key("Valor Global"): "valor_global",
         _key("Valor de Repasse"): "valor_de_repasse",
         _key("Valor de Contrapartida"): "valor_de_contrapartida",
@@ -133,33 +129,25 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
         _key("Execução Financeira"): "execucao_financeira",
         _key("Execucao Financeira"): "execucao_financeira",
 
+        # Conteúdo e localização
         _key("Objeto"): "objeto",
-
         _key("UF"): "uf",
         _key("Município"): "municipio",
         _key("Municipio"): "municipio",
-
         _key("Ano Assinatura"): "ano_assinatura",
 
+        # Proponente e status
         _key("Nome do Proponente"): "nome_proponente",
         _key("Nome Proponente"): "nome_proponente",
-
         _key("Situação Instrumento"): "situacao_instrumento",
         _key("Situacao Instrumento"): "situacao_instrumento",
-
         _key("CNPJ"): "cnpj",
         _key("CNPJ Proponente"): "cnpj",
 
+        # Indicadores/faixas
         _key("Último Pagamento"): "ultimo_pagamento",
         _key("Ultimo Pagamento"): "ultimo_pagamento",
-
         _key("Sem Desembolso"): "sem_desembolso",
-
-        _key("Nº do Processo"): "no_processo",
-        _key("No do Processo"): "no_processo",
-        _key("Numero do Processo"): "no_processo",
-        _key("NUP"): "no_processo",
-
         _key("Sem Pagamento a Mais de 150 Dias"): "sem_pagamento_a_mais_de_150_dias",
         _key("Sem Pagamento mais de 150 dias"): "sem_pagamento_a_mais_de_150_dias",
         _key("Sem Pagamento +150 dias"): "sem_pagamento_a_mais_de_150_dias",
@@ -167,6 +155,17 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
         _key("Situação Inst. Contratual"): "situacao_inst_contratual",
         _key("Situacao Inst Contratual"): "situacao_inst_contratual",
         _key("Situação Inst Contratual"): "situacao_inst_contratual",
+
+        # Processo (NUP) - opcional
+        _key("Nº Processo"): "no_processo",
+        _key("Nº do Processo"): "no_processo",
+        _key("No Processo"): "no_processo",
+        _key("No do Processo"): "no_processo",
+        _key("Número do Processo"): "no_processo",
+        _key("Numero do Processo"): "no_processo",
+        _key("NUP"): "no_processo",
+        _key("NUP do Processo"): "no_processo",
+        _key("Processo"): "no_processo",
     }
 
     rename_dict = {}
@@ -175,8 +174,7 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
         if k in normalized_map:
             rename_dict[col] = normalized_map[k]
 
-    df = df.rename(columns=rename_dict)
-    return df
+    return df.rename(columns=rename_dict)
 
 
 def validate_columns(df: pd.DataFrame) -> list[str]:
@@ -205,7 +203,7 @@ def clean_and_normalize(df: pd.DataFrame) -> pd.DataFrame:
     if "uf" in df.columns:
         df["uf"] = _normalize_str(df["uf"]).str.upper()
 
-    # Normaliza SIM/NÃO
+    # Normaliza SIM/NÃO (quando aplicável)
     for col in ["possui_obra", "sem_pagamento_a_mais_de_150_dias"]:
         if col in df.columns:
             df[col] = _normalize_str(df[col]).str.upper()
@@ -217,8 +215,6 @@ def clean_and_normalize(df: pd.DataFrame) -> pd.DataFrame:
 def add_queue_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     Cria colunas booleanas para filas, usando as FAIXAS (texto).
-    - sem_desembolso: 4 faixas
-    - ultimo_pagamento: 4 faixas + "Sem Desembolso"
     """
     df = df.copy()
 
@@ -230,17 +226,19 @@ def add_queue_flags(df: pd.DataFrame) -> pd.DataFrame:
     up = _normalize_str(up)
     sp150 = _normalize_str(sp150).str.upper()
 
-    # Filas equivalentes (por faixa)
+    # Sem execução financeira (por faixa de "Sem Desembolso")
     df["fila_sem_exec_90"] = sd.isin([FAIXAS_90_180, FAIXAS_180_365, FAIXAS_ACIMA_365])
     df["fila_sem_exec_180"] = sd.isin([FAIXAS_180_365, FAIXAS_ACIMA_365])
     df["fila_sem_exec_365"] = sd.eq(FAIXAS_ACIMA_365)
 
+    # Último pagamento (por faixa)
     df["fila_ult_pagto_90"] = up.isin([FAIXAS_90_180, FAIXAS_180_365, FAIXAS_ACIMA_365])
     df["fila_ult_pagto_180"] = up.isin([FAIXAS_180_365, FAIXAS_ACIMA_365])
 
+    # Último pagamento = Sem Desembolso (categoria específica do painel)
     df["fila_sem_desembolso_ult_pagto"] = up.eq(FAIXAS_SEM_DESEMBOLSO)
 
-    # Indicador direto
+    # Indicador direto do painel
     df["fila_sem_pagto_150"] = sp150.eq("SIM")
 
     return df
@@ -251,13 +249,10 @@ def compute_metrics(df: pd.DataFrame) -> dict:
     out["qtd_instrumentos"] = int(df["no_instrumento"].nunique()) if "no_instrumento" in df.columns else int(len(df))
 
     for col in MONEY_COLUMNS:
-        if col in df.columns:
-            out[f"soma_{col}"] = float(df[col].fillna(0).sum())
-        else:
-            out[f"soma_{col}"] = 0.0
+        out[f"soma_{col}"] = float(df[col].fillna(0).sum()) if col in df.columns else 0.0
 
-    if "execucao_financeira" in df.columns:
-        out["media_execucao_financeira"] = float(df["execucao_financeira"].dropna().mean()) if df["execucao_financeira"].notna().any() else 0.0
+    if "execucao_financeira" in df.columns and df["execucao_financeira"].notna().any():
+        out["media_execucao_financeira"] = float(df["execucao_financeira"].dropna().mean())
     else:
         out["media_execucao_financeira"] = 0.0
 
@@ -304,7 +299,8 @@ def filter_df(
     if search_text:
         q = str(search_text).strip()
         if q:
-            cols = [c for c in ["no_instrumento", "no_processo", "cnpj", "nome_proponente", "objeto"] if c in x.columns]
+            candidates = ["no_instrumento", "cnpj", "nome_proponente", "objeto", "no_processo"]
+            cols = [c for c in candidates if c in x.columns]
             if cols:
                 mask = False
                 for c in cols:
