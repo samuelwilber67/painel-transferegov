@@ -30,7 +30,7 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
         _key("Sem Desembolso"): "sem_desembolso",
         _key("Engenheiro Responsável"): "eng_resp",
         _key("Técnico Responsável"): "tec_resp",
-        # Adicione aqui as novas colunas das outras 5 planilhas
+        # Adicione aqui as novas colunas das outras 5 planilhas conforme necessário
     }
     rename_dict = {col: mapping[_key(col)] for col in df.columns if _key(col) in mapping}
     return df.rename(columns=rename_dict)
@@ -58,6 +58,12 @@ def load_and_merge_all(files_dict: dict) -> pd.DataFrame:
     if os.path.exists(DB_ATRIBUICAO):
         attr_df = pd.read_csv(DB_ATRIBUICAO, dtype={'no_instrumento': str})
         main_df = pd.merge(main_df, attr_df, on="no_instrumento", how="left")
+        
+    # Garante que as colunas de atribuição existam (mesmo vazias)
+    if 'eng_resp' not in main_df.columns:
+        main_df['eng_resp'] = pd.NA
+    if 'tec_resp' not in main_df.columns:
+        main_df['tec_resp'] = pd.NA
         
     return main_df
 
