@@ -63,21 +63,61 @@ def _normalize_str(s: pd.Series) -> pd.Series:
 
 def _to_number(s: pd.Series) -> pd.Series:
     """
-    Converte texto numérico para número.
-    Aceita:
-      - "2331839.15"
+    Converte texto numérico para número, lidando com:
       - "1.234,56" (PT-BR)
+      - "1234,56"  (PT-BR sem milhar)
+      - "1234.56"  (ponto decimal)
+      - "1,234.56"  (milhar com vírgula e decimal com ponto)
       - "-" -> NaN
+
+    Regra:
+      - Se tiver vírgula, assume vírgula como decimal (PT-BR) quando também houver pontos.
+        (ex.: "1.234,56" -> 1234.56)
+      - Se não tiver vírgula, assume ponto como decimal (ex.: "1234.56" -> 1234.56)
+      - Se tiver "1,234.56" (vírgula e ponto), trata vírgula como milhar e ponto como decimal.
     """
     s = s.astype("string")
     s = s.str.strip()
     s = s.replace({"-": pd.NA, "—": pd.NA, "": pd.NA})
 
-    # Se vier no formato PT-BR com milhar e vírgula decimal
-    s = s.str.replace(".", "", regex=False)
-    s = s.str.replace(",", ".", regex=False)
+    has_comma = s.str.contains(",", na=False)
+    has_dot = s.str.contains(r"\.", na=False)
 
-    return pd.to_numeric(s, errors="coerce")
+    # Caso 1: tem vírgula e ponto -> pode ser PT-BR (1.234,56) OU US (1,234.56)
+    # Vamos decidir pela posição: se a vírgula vem depois do último ponto, é PT-BR; caso contrário, é US.
+    both = has_comma & has_dot
+    s_both = s.where(both, other=pd.NA)
+
+    last_dot_pos = s_both.str.rfind(".")
+    last_comma_pos = s_both.str.rfind(",")
+
+    is_ptbr = last_comma_pos > last_dot_pos  # "1.234,56"
+    s_ptbr_both = s_both.where(is_ptbr, other=pd.NA)
+    s_us_both = s_both.where(~is_ptbr, other=pd.NA)
+
+    # PT-BR: remove milhares "." e troca decimal "," por "."
+    s_ptbr_both = s_ptbr_both.str.replace(".", "", regex=False)
+    s_ptbr_both = s_ptbr_both.str.replace(",", ".", regex=False)
+
+    # US: remove milhares "," e mantém "." como decimal
+    s_us_both = s_us_both.str.replace(",", "", regex=False)
+
+    # Caso 2: só vírgula (sem ponto) -> assume vírgula decimal ("1234,56")
+    only_comma = has_comma & ~has_dot
+    s_only_comma = s.where(only_comma, other=pd.NA)
+    s_only_comma = s_only_comma.str.replace(",", ".", regex=False)
+
+    # Caso 3: só ponto (sem vírgula) -> assume ponto decimal ("1234.56")
+    only_dot = has_dot & ~has_comma
+    s_only_dot = s.where(only_dot, other=pd.NA)
+    # se vier com separador de milhar por vírgula aqui não entra; então só mantém.
+
+    # Caso 4: nem vírgula nem ponto -> número inteiro como texto
+    neither = ~has_comma & ~has_dot
+    s_neither = s.where(neither, other=pd.NA)
+
+    combined = s_ptbr_both.fillna(s_us_both).fillna(s_only_comma).fillna(s_only_dot).fillna(s_neither)
+    return pd.to_numeric(combined, errors="coerce")
 
 
 def _key(s: str) -> str:
