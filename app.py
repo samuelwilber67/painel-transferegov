@@ -18,7 +18,9 @@ menu = st.sidebar.radio("Menu Principal", ["Geral", "Coordenações", "Cadastros
 
 # --- FUNÇÃO DE DETALHE (EXPANDIDO) ---
 def render_detalhe(id_val, can_edit):
-    st.button("⬅️ Voltar para a lista", on_click=lambda: setattr(st.session_state, 'selected_id', None))
+    if st.button("⬅️ Voltar para a lista"):
+        st.session_state.selected_id = None
+        st.rerun()
     
     row = st.session_state.main_df[
         (st.session_state.main_df['no_instrumento'] == id_val) | 
@@ -85,11 +87,11 @@ if menu == "Geral":
             render_detalhe(st.session_state.selected_id, can_edit=False)
         else:
             st.write(f"{len(res)} resultados encontrados.")
-            for _, r in res.iterrows():
+            for idx, r in res.iterrows():
                 id_v = r['no_instrumento'] if pd.notna(r['no_instrumento']) else r['no_proposta']
                 with st.expander(f"Convênio {id_v} - {r['municipio']} ({r['uf']})"):
                     st.write(f"**Objeto:** {r['objeto']}")
-                    if st.button("Ver Detalhes", key=f"btn_{id_v}"):
+                    if st.button("Ver Detalhes", key=f"btn_{idx}_{id_v}"):
                         st.session_state.selected_id = id_v
                         st.rerun()
 
@@ -116,14 +118,18 @@ elif menu == "Coordenações":
         with tab_cel:
             cols = ["no_instrumento", "ano", "uf", "municipio", "objeto", "status", "status_pb"]
             st.table(meus_casos[[c for c in cols if c in meus_casos.columns]])
-            for id_v in meus_casos['no_instrumento'].dropna():
-                if st.button(f"Ver/Editar {id_v}", key=f"cel_{id_v}"):
+            for idx, id_v in enumerate(meus_casos['no_instrumento'].dropna()):
+                if st.button(f"Ver/Editar {id_v}", key=f"cel_{idx}_{id_v}"):
                     st.session_state.selected_id = id_v
                     st.rerun()
 
         with tab_exe:
             cols = ["no_instrumento", "ano", "uf", "municipio", "objeto", "status_execucao", "status_obra"]
             st.table(meus_casos[[c for c in cols if c in meus_casos.columns]])
+            for idx, id_v in enumerate(meus_casos['no_instrumento'].dropna()):
+                if st.button(f"Ver/Editar {id_v}", key=f"exe_{idx}_{id_v}"):
+                    st.session_state.selected_id = id_v
+                    st.rerun()
 
 # --- PÁGINA: ATRIBUIÇÃO (GESTORES) ---
 elif menu == "Atribuição":
@@ -137,3 +143,12 @@ elif menu == "Atribuição":
         if st.button("Confirmar Atribuição"):
             save_atribuicao(inst, True, eng, tec)
             st.success("Atribuído!")
+
+# --- PÁGINAS PLACEHOLDER PARA AS OUTRAS ---
+elif menu == "Cadastros":
+    st.header("📝 Cadastros (Em Desenvolvimento)")
+    st.write("Aqui será a atribuição de vistorias.")
+
+elif menu == "Gerenciamento":
+    st.header("🏗️ Gerenciamento (Em Desenvolvimento)")
+    st.write("Aqui será o gerenciamento de vistorias.")
