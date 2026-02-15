@@ -5,6 +5,7 @@ import pandas as pd
 
 from utils.data import (
     load_xlsx,
+    rename_columns,
     validate_columns,
     clean_and_normalize,
     add_queue_flags,
@@ -33,6 +34,7 @@ def fmt_brl(value: float) -> str:
 @st.cache_data(show_spinner=False)
 def load_and_prepare(file) -> pd.DataFrame:
     df0 = load_xlsx(file)
+    df0 = rename_columns(df0)
     df0 = clean_and_normalize(df0)
     df0 = add_queue_flags(df0)
     return df0
