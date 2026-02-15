@@ -1,143 +1,15 @@
 from __future__ import annotations
 
-import streamlit as st
+import unicodedata
 import pandas as pd
 
-from utils.data import (
-    load_xlsx,
-    rename_columns,
-    validate_columns,
-    clean_and_normalize,
-    add_queue_flags,
-    compute_metrics,
-    filter_df,
-    to_csv_bytes,
-)
 
-st.set_page_config(page_title="Convênios - Base Transferegov", layout="wide")
-
-st.title("Base de instrumentos (Transferegov)")
-st.write("Faça upload do XLSX exportado do painel e use filtros/filas para navegação e validação do MVP.")
-
-
-def fmt_brl(value: float) -> str:
-    # Formatação simples sem depender de locale do servidor
-    try:
-        v = float(value)
-    except Exception:
-        v = 0.0
-    s = f"{v:,.2f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}"
-
-
-@st.cache_data(show_spinner=False)
-def load_and_prepare(file) -> pd.DataFrame:
-    df0 = load_xlsx(file)
-    df0 = rename_columns(df0)
-    df0 = clean_and_normalize(df0)
-    df0 = add_queue_flags(df0)
-    return df0
-
-
-uploaded = st.file_uploader("Arquivo XLSX (exportação do Transferegov)", type=["xlsx"])
-
-if not uploaded:
-    st.info("Envie um arquivo XLSX para começar.")
-    st.stop()
-
-df = load_and_prepare(uploaded)
-
-missing = validate_columns(df)
-if missing:
-    st.error("O arquivo não tem todas as colunas esperadas. Colunas faltantes:")
-    st.write(missing)
-    st.stop()
-
-with st.expander("Prévia do arquivo (primeiras 10 linhas)", expanded=False):
-    st.dataframe(df.head(10), use_container_width=True)
-
-# Sidebar: filtros
-st.sidebar.header("Filtros")
-
-uf = st.sidebar.multiselect("UF", sorted(df["uf"].dropna().unique().tolist()))
-municipio = st.sidebar.multiselect("Município", sorted(df["municipio"].dropna().unique().tolist()))
-situacao = st.sidebar.multiselect("Situação", sorted(df["situacao_instrumento"].dropna().unique().tolist()))
-subsituacao = st.sidebar.multiselect("Subsituação", sorted(df["subsituacao_instrumento"].dropna().unique().tolist()))
-possui_obra = st.sidebar.multiselect("Possui obra", sorted(df["possui_obra"].dropna().unique().tolist()))
-sem_pagto_150 = st.sidebar.multiselect(
-    "Sem pagamento +150 dias",
-    sorted(df["sem_pagamento_a_mais_de_150_dias"].dropna().unique().tolist()),
-)
-
-sem_desembolso = st.sidebar.multiselect("Sem desembolso (faixa)", sorted(df["sem_desembolso"].dropna().unique().tolist()))
-ultimo_pagamento = st.sidebar.multiselect("Último pagamento (faixa)", sorted(df["ultimo_pagamento"].dropna().unique().tolist()))
-
-situacao_inst_contratual = st.sidebar.multiselect(
-    "Situação inst. contratual",
-    sorted(df["situacao_inst_contratual"].dropna().unique().tolist()),
-)
-
-search_text = st.sidebar.text_input("Busca (instrumento, NUP, CNPJ, proponente, objeto)")
-
-st.sidebar.header("Filas (checkbox)")
-
-only_fila_sem_exec_90 = st.sidebar.checkbox("Sem execução financeira > 90 dias (faixa)")
-only_fila_sem_exec_180 = st.sidebar.checkbox("Sem execução financeira > 180 dias (faixa)")
-only_fila_sem_exec_365 = st.sidebar.checkbox("Sem execução financeira > 365 dias (faixa)")
-
-only_fila_ult_pagto_90 = st.sidebar.checkbox("Último pagamento > 90 dias (faixa)")
-only_fila_ult_pagto_180 = st.sidebar.checkbox("Último pagamento > 180 dias (faixa)")
-
-only_fila_sem_desembolso_ult_pagto = st.sidebar.checkbox("Último pagamento = Sem Desembolso")
-only_fila_sem_pagto_150 = st.sidebar.checkbox("Sem pagamento +150 dias (indicador)")
-
-filtered = filter_df(
-    df=df,
-    uf=uf,
-    municipio=municipio,
-    situacao=situacao,
-    subsituacao=subsituacao,
-    possui_obra=possui_obra,
-    sem_pagto_150=sem_pagto_150,
-    sem_desembolso=sem_desembolso,
-    ultimo_pagamento=ultimo_pagamento,
-    situacao_inst_contratual=situacao_inst_contratual,
-    search_text=search_text,
-    only_fila_sem_exec_90=only_fila_sem_exec_90,
-    only_fila_sem_exec_180=only_fila_sem_exec_180,
-    only_fila_sem_exec_365=only_fila_sem_exec_365,
-    only_fila_ult_pagto_90=only_fila_ult_pagto_90,
-    only_fila_ult_pagto_180=only_fila_ult_pagto_180,
-    only_fila_sem_desembolso_ult_pagto=only_fila_sem_desembolso_ult_pagto,
-    only_fila_sem_pagto_150=only_fila_sem_pagto_150,
-)
-
-# Métricas
-m = compute_metrics(filtered)
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Instrumentos (únicos)", f"{m['qtd_instrumentos']:,}".replace(",", "."))
-c2.metric("Soma valor global", fmt_brl(m["soma_valor_global"]))
-c3.metric("Soma desembolsado", fmt_brl(m["soma_valor_desembolsado_acumulado"]))
-c4.metric("Média execução financeira", f"{m['media_execucao_financeira']:.4f}")
-
-st.subheader("Resultados")
-
-# Seleção para detalhe (via selectbox para não depender de recursos novos)
-cols_show = [
+# Colunas obrigatórias para o MVP funcionar
+REQUIRED_COLUMNS = [
     "no_instrumento",
-    "no_processo",
-    "uf",
-    "municipio",
-    "cnpj",
-    "nome_proponente",
-    "situacao_instrumento",
     "subsituacao_instrumento",
+    "link_externo",
     "possui_obra",
-    "sem_pagamento_a_mais_de_150_dias",
-    "ultimo_pagamento",
-    "sem_desembolso",
     "valor_global",
     "valor_de_repasse",
     "valor_de_contrapartida",
@@ -145,66 +17,311 @@ cols_show = [
     "valor_desembolsado_acumulado",
     "saldo_em_conta",
     "execucao_financeira",
+    "objeto",
+    "uf",
+    "municipio",
+    "ano_assinatura",
+    "nome_proponente",
+    "situacao_instrumento",
+    "cnpj",
+    "ultimo_pagamento",
+    "sem_desembolso",
+    "sem_pagamento_a_mais_de_150_dias",
     "situacao_inst_contratual",
 ]
-cols_show = [c for c in cols_show if c in filtered.columns]
 
-st.dataframe(filtered[cols_show], use_container_width=True, height=420)
+# Colunas opcionais (se vierem, o app usa; se não vierem, não quebra)
+OPTIONAL_COLUMNS = [
+    "no_processo",  # NUP / Nº Processo
+]
 
-st.divider()
+MONEY_COLUMNS = [
+    "valor_global",
+    "valor_de_repasse",
+    "valor_de_contrapartida",
+    "valor_empenhado_acumulado",
+    "valor_desembolsado_acumulado",
+    "saldo_em_conta",
+]
 
-st.subheader("Detalhe do instrumento")
+NUMERIC_COLUMNS = MONEY_COLUMNS + ["execucao_financeira", "ano_assinatura"]
 
-options = filtered["no_instrumento"].dropna().astype("string").unique().tolist()
-options = sorted(options)
+# Faixas informadas por você
+FAIXAS_ATE_90 = "Até 90 dias"
+FAIXAS_90_180 = "Acima de 90 até 180 dias"
+FAIXAS_180_365 = "Acima de 180 até 365 dias"
+FAIXAS_ACIMA_365 = "Acima de 365 dias"
+FAIXAS_SEM_DESEMBOLSO = "Sem Desembolso"
 
-selected = st.selectbox("Selecione o número do instrumento", options=options, index=0 if options else None)
 
-if selected:
-    row = filtered[filtered["no_instrumento"].astype("string") == str(selected)].head(1)
-    if not row.empty:
-        r = row.iloc[0].to_dict()
+def _normalize_str(s: pd.Series) -> pd.Series:
+    s = s.astype("string")
+    s = s.str.replace(r"\s+", " ", regex=True).str.strip()
+    s = s.replace({"": pd.NA, "-": pd.NA, "—": pd.NA})
+    return s
 
-        left, right = st.columns([2, 3])
 
-        with left:
-            st.write(f"Instrumento: {r.get('no_instrumento')}")
-            st.write(f"Processo (NUP): {r.get('no_processo')}")
-            st.write(f"UF/Município: {r.get('uf')} / {r.get('municipio')}")
-            st.write(f"Proponente: {r.get('nome_proponente')}")
-            st.write(f"CNPJ: {r.get('cnpj')}")
-            st.write(f"Ano assinatura: {r.get('ano_assinatura')}")
-            st.write(f"Situação: {r.get('situacao_instrumento')}")
-            st.write(f"Subsituação: {r.get('subsituacao_instrumento')}")
-            st.write(f"Possui obra: {r.get('possui_obra')}")
-            st.write(f"Sem pagto +150: {r.get('sem_pagamento_a_mais_de_150_dias')}")
-            st.write(f"Último pagamento: {r.get('ultimo_pagamento')}")
-            st.write(f"Sem desembolso: {r.get('sem_desembolso')}")
-            st.write(f"Sit. inst. contratual: {r.get('situacao_inst_contratual')}")
+def _to_number(s: pd.Series) -> pd.Series:
+    """
+    Converte texto numérico para número.
+    Aceita:
+      - "2331839.15"
+      - "1.234,56" (PT-BR)
+      - "-" -> NaN
+    """
+    s = s.astype("string")
+    s = s.str.strip()
+    s = s.replace({"-": pd.NA, "—": pd.NA, "": pd.NA})
 
-        with right:
-            st.write("Objeto")
-            st.write(r.get("objeto"))
+    # Se vier no formato PT-BR com milhar e vírgula decimal
+    s = s.str.replace(".", "", regex=False)
+    s = s.str.replace(",", ".", regex=False)
 
-            st.write("Financeiro")
-            st.write(f"Valor global: {fmt_brl(r.get('valor_global') or 0)}")
-            st.write(f"Repasse: {fmt_brl(r.get('valor_de_repasse') or 0)}")
-            st.write(f"Contrapartida: {fmt_brl(r.get('valor_de_contrapartida') or 0)}")
-            st.write(f"Empenhado acumulado: {fmt_brl(r.get('valor_empenhado_acumulado') or 0)}")
-            st.write(f"Desembolsado acumulado: {fmt_brl(r.get('valor_desembolsado_acumulado') or 0)}")
-            st.write(f"Saldo em conta: {fmt_brl(r.get('saldo_em_conta') or 0)}")
-            st.write(f"Execução financeira: {r.get('execucao_financeira')}")
+    return pd.to_numeric(s, errors="coerce")
 
-        link = r.get("link_externo")
-        if link and isinstance(link, str):
-            st.link_button("Abrir no Transferegov", link)
 
-st.divider()
+def _key(s: str) -> str:
+    """
+    Normaliza nomes de colunas para comparação:
+    - remove acentos
+    - deixa minúsculo
+    - remove caracteres não alfanuméricos (vira espaço)
+    - colapsa espaços
+    """
+    if s is None:
+        return ""
+    s = str(s)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    s = "".join(ch if ch.isalnum() else " " for ch in s)
+    s = " ".join(s.split())
+    return s
 
-csv_bytes = to_csv_bytes(filtered[cols_show])
-st.download_button(
-    label="Baixar CSV do resultado filtrado",
-    data=csv_bytes,
-    file_name="instrumentos_filtrados.csv",
-    mime="text/csv",
-)
+
+def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Renomeia colunas do XLSX exportado (com espaços/acentos/maiúsculas) para snake_case interno.
+    Usa matching por chave normalizada para tolerar variações do painel.
+    """
+    normalized_map = {
+        # Identificação
+        _key("Nº Instrumento"): "no_instrumento",
+        _key("No Instrumento"): "no_instrumento",
+        _key("Número Instrumento"): "no_instrumento",
+        _key("Numero Instrumento"): "no_instrumento",
+
+        _key("SubSituação Instrumento"): "subsituacao_instrumento",
+        _key("Subsituação Instrumento"): "subsituacao_instrumento",
+        _key("Sub Situacao Instrumento"): "subsituacao_instrumento",
+
+        _key("Link Externo"): "link_externo",
+
+        _key("Possui Obra"): "possui_obra",
+
+        # Financeiro
+        _key("Valor Global"): "valor_global",
+        _key("Valor de Repasse"): "valor_de_repasse",
+        _key("Valor de Contrapartida"): "valor_de_contrapartida",
+        _key("Valor Empenhado Acumulado"): "valor_empenhado_acumulado",
+        _key("Valor Desembolsado Acumulado"): "valor_desembolsado_acumulado",
+        _key("Saldo em Conta"): "saldo_em_conta",
+        _key("Execução Financeira"): "execucao_financeira",
+        _key("Execucao Financeira"): "execucao_financeira",
+
+        # Conteúdo e localização
+        _key("Objeto"): "objeto",
+        _key("UF"): "uf",
+        _key("Município"): "municipio",
+        _key("Municipio"): "municipio",
+        _key("Ano Assinatura"): "ano_assinatura",
+
+        # Proponente e status
+        _key("Nome do Proponente"): "nome_proponente",
+        _key("Nome Proponente"): "nome_proponente",
+        _key("Situação Instrumento"): "situacao_instrumento",
+        _key("Situacao Instrumento"): "situacao_instrumento",
+        _key("CNPJ"): "cnpj",
+        _key("CNPJ Proponente"): "cnpj",
+
+        # Indicadores/faixas
+        _key("Último Pagamento"): "ultimo_pagamento",
+        _key("Ultimo Pagamento"): "ultimo_pagamento",
+        _key("Sem Desembolso"): "sem_desembolso",
+        _key("Sem Pagamento a Mais de 150 Dias"): "sem_pagamento_a_mais_de_150_dias",
+        _key("Sem Pagamento mais de 150 dias"): "sem_pagamento_a_mais_de_150_dias",
+        _key("Sem Pagamento +150 dias"): "sem_pagamento_a_mais_de_150_dias",
+
+        _key("Situação Inst. Contratual"): "situacao_inst_contratual",
+        _key("Situacao Inst Contratual"): "situacao_inst_contratual",
+        _key("Situação Inst Contratual"): "situacao_inst_contratual",
+
+        # Processo (NUP) - opcional
+        _key("Nº Processo"): "no_processo",
+        _key("Nº do Processo"): "no_processo",
+        _key("No Processo"): "no_processo",
+        _key("No do Processo"): "no_processo",
+        _key("Número do Processo"): "no_processo",
+        _key("Numero do Processo"): "no_processo",
+        _key("NUP"): "no_processo",
+        _key("NUP do Processo"): "no_processo",
+        _key("Processo"): "no_processo",
+    }
+
+    rename_dict = {}
+    for col in df.columns:
+        k = _key(col)
+        if k in normalized_map:
+            rename_dict[col] = normalized_map[k]
+
+    return df.rename(columns=rename_dict)
+
+
+def validate_columns(df: pd.DataFrame) -> list[str]:
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    return missing
+
+
+def load_xlsx(uploaded_file) -> pd.DataFrame:
+    return pd.read_excel(uploaded_file, engine="openpyxl")
+
+
+def clean_and_normalize(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    # Normaliza strings
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = _normalize_str(df[col])
+
+    # Converte numéricos
+    for col in NUMERIC_COLUMNS:
+        if col in df.columns:
+            df[col] = _to_number(df[col])
+
+    # UF em caixa alta
+    if "uf" in df.columns:
+        df["uf"] = _normalize_str(df["uf"]).str.upper()
+
+    # Normaliza SIM/NÃO (quando aplicável)
+    for col in ["possui_obra", "sem_pagamento_a_mais_de_150_dias"]:
+        if col in df.columns:
+            df[col] = _normalize_str(df[col]).str.upper()
+            df[col] = df[col].replace({"SIM": "SIM", "NAO": "NÃO", "NAO ": "NÃO"})
+
+    return df
+
+
+def add_queue_flags(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Cria colunas booleanas para filas, usando as FAIXAS (texto).
+    """
+    df = df.copy()
+
+    sd = df.get("sem_desembolso", pd.Series([pd.NA] * len(df), index=df.index, dtype="string"))
+    up = df.get("ultimo_pagamento", pd.Series([pd.NA] * len(df), index=df.index, dtype="string"))
+    sp150 = df.get("sem_pagamento_a_mais_de_150_dias", pd.Series([pd.NA] * len(df), index=df.index, dtype="string"))
+
+    sd = _normalize_str(sd)
+    up = _normalize_str(up)
+    sp150 = _normalize_str(sp150).str.upper()
+
+    # Sem execução financeira (por faixa de "Sem Desembolso")
+    df["fila_sem_exec_90"] = sd.isin([FAIXAS_90_180, FAIXAS_180_365, FAIXAS_ACIMA_365])
+    df["fila_sem_exec_180"] = sd.isin([FAIXAS_180_365, FAIXAS_ACIMA_365])
+    df["fila_sem_exec_365"] = sd.eq(FAIXAS_ACIMA_365)
+
+    # Último pagamento (por faixa)
+    df["fila_ult_pagto_90"] = up.isin([FAIXAS_90_180, FAIXAS_180_365, FAIXAS_ACIMA_365])
+    df["fila_ult_pagto_180"] = up.isin([FAIXAS_180_365, FAIXAS_ACIMA_365])
+
+    # Último pagamento = Sem Desembolso (categoria específica do painel)
+    df["fila_sem_desembolso_ult_pagto"] = up.eq(FAIXAS_SEM_DESEMBOLSO)
+
+    # Indicador direto do painel
+    df["fila_sem_pagto_150"] = sp150.eq("SIM")
+
+    return df
+
+
+def compute_metrics(df: pd.DataFrame) -> dict:
+    out = {}
+    out["qtd_instrumentos"] = int(df["no_instrumento"].nunique()) if "no_instrumento" in df.columns else int(len(df))
+
+    for col in MONEY_COLUMNS:
+        out[f"soma_{col}"] = float(df[col].fillna(0).sum()) if col in df.columns else 0.0
+
+    if "execucao_financeira" in df.columns and df["execucao_financeira"].notna().any():
+        out["media_execucao_financeira"] = float(df["execucao_financeira"].dropna().mean())
+    else:
+        out["media_execucao_financeira"] = 0.0
+
+    return out
+
+
+def filter_df(
+    df: pd.DataFrame,
+    uf: list[str],
+    municipio: list[str],
+    situacao: list[str],
+    subsituacao: list[str],
+    possui_obra: list[str],
+    sem_pagto_150: list[str],
+    sem_desembolso: list[str],
+    ultimo_pagamento: list[str],
+    situacao_inst_contratual: list[str],
+    search_text: str | None,
+    only_fila_sem_exec_90: bool,
+    only_fila_sem_exec_180: bool,
+    only_fila_sem_exec_365: bool,
+    only_fila_ult_pagto_90: bool,
+    only_fila_ult_pagto_180: bool,
+    only_fila_sem_desembolso_ult_pagto: bool,
+    only_fila_sem_pagto_150: bool,
+) -> pd.DataFrame:
+    x = df.copy()
+
+    def apply_in(col: str, values: list[str]):
+        nonlocal x
+        if col in x.columns and values:
+            x = x[x[col].isin(values)]
+
+    apply_in("uf", uf)
+    apply_in("municipio", municipio)
+    apply_in("situacao_instrumento", situacao)
+    apply_in("subsituacao_instrumento", subsituacao)
+    apply_in("possui_obra", possui_obra)
+    apply_in("sem_pagamento_a_mais_de_150_dias", sem_pagto_150)
+    apply_in("sem_desembolso", sem_desembolso)
+    apply_in("ultimo_pagamento", ultimo_pagamento)
+    apply_in("situacao_inst_contratual", situacao_inst_contratual)
+
+    if search_text:
+        q = str(search_text).strip()
+        if q:
+            candidates = ["no_instrumento", "cnpj", "nome_proponente", "objeto", "no_processo"]
+            cols = [c for c in candidates if c in x.columns]
+            if cols:
+                mask = False
+                for c in cols:
+                    mask = mask | x[c].astype("string").str.contains(q, case=False, na=False)
+                x = x[mask]
+
+    def apply_flag(col: str, enabled: bool):
+        nonlocal x
+        if enabled and col in x.columns:
+            x = x[x[col] == True]
+
+    apply_flag("fila_sem_exec_90", only_fila_sem_exec_90)
+    apply_flag("fila_sem_exec_180", only_fila_sem_exec_180)
+    apply_flag("fila_sem_exec_365", only_fila_sem_exec_365)
+    apply_flag("fila_ult_pagto_90", only_fila_ult_pagto_90)
+    apply_flag("fila_ult_pagto_180", only_fila_ult_pagto_180)
+    apply_flag("fila_sem_desembolso_ult_pagto", only_fila_sem_desembolso_ult_pagto)
+    apply_flag("fila_sem_pagto_150", only_fila_sem_pagto_150)
+
+    return x
+
+
+def to_csv_bytes(df: pd.DataFrame) -> bytes:
+    return df.to_csv(index=False).encode("utf-8")
