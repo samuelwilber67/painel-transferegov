@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 import pandas as pd
 
 
@@ -56,7 +57,6 @@ FAIXAS_PADRAO = [
 
 
 def _normalize_str(s: pd.Series) -> pd.Series:
-    # Mantém o texto (inclusive acentos), mas padroniza espaços e nulos
     s = s.astype("string")
     s = s.str.replace(r"\s+", " ", regex=True).str.strip()
     s = s.replace({"": pd.NA, "-": pd.NA, "—": pd.NA})
@@ -64,17 +64,119 @@ def _normalize_str(s: pd.Series) -> pd.Series:
 
 
 def _to_number(s: pd.Series) -> pd.Series:
-    # Converte: "2331839.15" -> 2331839.15 ; "-" -> NaN
-    # Se vier com vírgula: "1.234,56" -> 1234.56 (tratamento)
+    """
+    Converte texto numérico para número.
+    Aceita:
+      - "2331839.15"
+      - "1.234,56" (PT-BR)
+      - "-" -> NaN
+    """
     s = s.astype("string")
     s = s.str.strip()
     s = s.replace({"-": pd.NA, "—": pd.NA, "": pd.NA})
 
-    # Remove separador de milhar e ajusta decimal PT-BR, se aparecer
+    # Se vier no formato PT-BR com milhar e vírgula decimal
+    # Ex.: 1.234,56 -> 1234.56
     s = s.str.replace(".", "", regex=False)
     s = s.str.replace(",", ".", regex=False)
 
     return pd.to_numeric(s, errors="coerce")
+
+
+def _key(s: str) -> str:
+    """
+    Normaliza nomes de colunas para comparação:
+    - remove acentos
+    - deixa minúsculo
+    - remove caracteres não alfanuméricos (vira espaço)
+    - colapsa espaços
+    """
+    if s is None:
+        return ""
+    s = str(s)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    # troca pontuação por espaço
+    s = "".join(ch if ch.isalnum() else " " for ch in s)
+    s = " ".join(s.split())
+    return s
+
+
+def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Renomeia colunas do XLSX exportado (com espaços/acentos/maiúsculas) para snake_case interno.
+    Usa matching por chave normalizada para tolerar variações do painel.
+    """
+    # Mapa por "chave normalizada" -> nome interno
+    normalized_map = {
+        _key("Nº Instrumento"): "no_instrumento",
+        _key("No Instrumento"): "no_instrumento",
+        _key("Número Instrumento"): "no_instrumento",
+        _key("Numero Instrumento"): "no_instrumento",
+
+        _key("SubSituação Instrumento"): "subsituacao_instrumento",
+        _key("Subsituação Instrumento"): "subsituacao_instrumento",
+        _key("Sub Situacao Instrumento"): "subsituacao_instrumento",
+        _key("SubSitucao Instrumento"): "subsituacao_instrumento",
+
+        _key("Link Externo"): "link_externo",
+
+        _key("Possui Obra"): "possui_obra",
+
+        _key("Valor Global"): "valor_global",
+        _key("Valor de Repasse"): "valor_de_repasse",
+        _key("Valor de Contrapartida"): "valor_de_contrapartida",
+        _key("Valor Empenhado Acumulado"): "valor_empenhado_acumulado",
+        _key("Valor Desembolsado Acumulado"): "valor_desembolsado_acumulado",
+        _key("Saldo em Conta"): "saldo_em_conta",
+        _key("Execução Financeira"): "execucao_financeira",
+        _key("Execucao Financeira"): "execucao_financeira",
+
+        _key("Objeto"): "objeto",
+
+        _key("UF"): "uf",
+        _key("Município"): "municipio",
+        _key("Municipio"): "municipio",
+
+        _key("Ano Assinatura"): "ano_assinatura",
+
+        _key("Nome do Proponente"): "nome_proponente",
+        _key("Nome Proponente"): "nome_proponente",
+
+        _key("Situação Instrumento"): "situacao_instrumento",
+        _key("Situacao Instrumento"): "situacao_instrumento",
+
+        _key("CNPJ"): "cnpj",
+        _key("CNPJ Proponente"): "cnpj",
+
+        _key("Último Pagamento"): "ultimo_pagamento",
+        _key("Ultimo Pagamento"): "ultimo_pagamento",
+
+        _key("Sem Desembolso"): "sem_desembolso",
+
+        _key("Nº do Processo"): "no_processo",
+        _key("No do Processo"): "no_processo",
+        _key("Numero do Processo"): "no_processo",
+        _key("NUP"): "no_processo",
+
+        _key("Sem Pagamento a Mais de 150 Dias"): "sem_pagamento_a_mais_de_150_dias",
+        _key("Sem Pagamento mais de 150 dias"): "sem_pagamento_a_mais_de_150_dias",
+        _key("Sem Pagamento +150 dias"): "sem_pagamento_a_mais_de_150_dias",
+
+        _key("Situação Inst. Contratual"): "situacao_inst_contratual",
+        _key("Situacao Inst Contratual"): "situacao_inst_contratual",
+        _key("Situação Inst Contratual"): "situacao_inst_contratual",
+    }
+
+    rename_dict = {}
+    for col in df.columns:
+        k = _key(col)
+        if k in normalized_map:
+            rename_dict[col] = normalized_map[k]
+
+    df = df.rename(columns=rename_dict)
+    return df
 
 
 def validate_columns(df: pd.DataFrame) -> list[str]:
@@ -83,27 +185,27 @@ def validate_columns(df: pd.DataFrame) -> list[str]:
 
 
 def load_xlsx(uploaded_file) -> pd.DataFrame:
-    df = pd.read_excel(uploaded_file, engine="openpyxl")
-    return df
+    return pd.read_excel(uploaded_file, engine="openpyxl")
 
 
 def clean_and_normalize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # Garantir colunas mínimas (não cria se faltar; validação fica no app)
+    # Normaliza strings
     for col in df.columns:
         if df[col].dtype == object:
             df[col] = _normalize_str(df[col])
 
+    # Converte numéricos
     for col in NUMERIC_COLUMNS:
         if col in df.columns:
             df[col] = _to_number(df[col])
 
-    # Padronizações úteis
+    # UF em caixa alta
     if "uf" in df.columns:
         df["uf"] = _normalize_str(df["uf"]).str.upper()
 
-    # Normaliza SIM/NÃO quando vier (sem forçar se tiver outros valores)
+    # Normaliza SIM/NÃO
     for col in ["possui_obra", "sem_pagamento_a_mais_de_150_dias"]:
         if col in df.columns:
             df[col] = _normalize_str(df[col]).str.upper()
@@ -114,9 +216,9 @@ def clean_and_normalize(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_queue_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Cria as colunas booleanas solicitadas, usando as FAIXAS (texto).
-    - sem_desembolso: não tem "Sem Desembolso" (apenas as 4 faixas)
-    - ultimo_pagamento: tem as 4 faixas + "Sem Desembolso"
+    Cria colunas booleanas para filas, usando as FAIXAS (texto).
+    - sem_desembolso: 4 faixas
+    - ultimo_pagamento: 4 faixas + "Sem Desembolso"
     """
     df = df.copy()
 
@@ -138,6 +240,7 @@ def add_queue_flags(df: pd.DataFrame) -> pd.DataFrame:
 
     df["fila_sem_desembolso_ult_pagto"] = up.eq(FAIXAS_SEM_DESEMBOLSO)
 
+    # Indicador direto
     df["fila_sem_pagto_150"] = sp150.eq("SIM")
 
     return df
@@ -208,7 +311,6 @@ def filter_df(
                     mask = mask | x[c].astype("string").str.contains(q, case=False, na=False)
                 x = x[mask]
 
-    # Filas (checkbox)
     def apply_flag(col: str, enabled: bool):
         nonlocal x
         if enabled and col in x.columns:
