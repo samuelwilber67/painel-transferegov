@@ -117,7 +117,9 @@ if menu == "Geral":
         f_proc = c4.text_input("Nº Processo")
         
         c5, c6, c7, c8 = st.columns(4)
-        f_uf = c5.multiselect("UF", df['uf'].unique())
+        # Verificação para evitar KeyError se coluna não existir
+        uf_options = df['uf'].unique() if not df.empty and 'uf' in df.columns else []
+        f_uf = c5.multiselect("UF", uf_options)
         f_mun = c6.text_input("Município")
         f_parl = c7.text_input("Parlamentar")
         f_val = c8.number_input("Valor Global", value=0.0)
