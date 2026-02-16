@@ -146,27 +146,30 @@ if menu == "Geral":
 
     if submitted or st.session_state.selected_id:
         res = df.copy()
-        # Aplicação dos filtros
-        if f_inst:
+        # Aplicação dos filtros com verificação de coluna para evitar KeyError
+        if f_inst and 'no_instrumento' in res.columns:
             res = res[res['no_instrumento'] == f_inst]
-        if f_ano:
-            res = res[res['ano'] == int(f_ano)]
-        if f_obj:
+        if f_ano and 'ano' in res.columns:
+            try:
+                res = res[res['ano'] == int(f_ano)]
+            except ValueError:
+                pass  # Ignora se não for número
+        if f_obj and 'objeto' in res.columns:
             res = res[res['objeto'].str.contains(f_obj, case=False, na=False)]
-        if f_proc:
+        if f_proc and 'no_processo' in res.columns:
             res = res[res['no_processo'].str.contains(f_proc, case=False, na=False)]
-        if f_uf:
+        if f_uf and 'uf' in res.columns:
             res = res[res['uf'].isin(f_uf)]
-        if f_mun:
+        if f_mun and 'municipio' in res.columns:
             res = res[res['municipio'].str.contains(f_mun, case=False, na=False)]
-        if f_parl:
+        if f_parl and 'parlamentar' in res.columns:
             res = res[res['parlamentar'].str.contains(f_parl, case=False, na=False)]
-        if f_val > 0:
+        if f_val > 0 and 'valor_global' in res.columns:
             res = res[res['valor_global'] >= f_val]
-        # Adicione filtros por coordenação conforme necessário (exemplo simplificado)
-        if f_pb_sit:
+        # Filtros por coordenação (exemplo simplificado, adicione verificações se necessário)
+        if f_pb_sit and 'situacao_pb' in res.columns:
             res = res[res['situacao_pb'].str.contains(f_pb_sit, case=False, na=False)]
-        # ... (adicione os outros filtros de coordenação aqui)
+        # Adicione os outros filtros de coordenação aqui com verificações similares
 
         if st.session_state.selected_id:
             render_detalhe(st.session_state.selected_id, 'leitura')
@@ -193,9 +196,9 @@ elif menu == "Coordenações":
     
     # Filtra casos do usuário
     meus_casos = df[(df['eng_resp'] == user_name) | (df['tec_resp'] == user_name)]
-    if f_mun:
+    if f_mun and 'municipio' in meus_casos.columns:
         meus_casos = meus_casos[meus_casos['municipio'].str.contains(f_mun, case=False, na=False)]
-    if f_inst:
+    if f_inst and 'no_instrumento' in meus_casos.columns and 'no_proposta' in meus_casos.columns:
         meus_casos = meus_casos[(meus_casos['no_instrumento'] == f_inst) | (meus_casos['no_proposta'] == f_inst)]
 
     if st.session_state.selected_id:
