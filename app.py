@@ -7,7 +7,7 @@ st.set_page_config(page_title="Gestão de Convênios", layout="wide")
 # --- LOGIN E PERFIS ---
 st.sidebar.title("👤 Usuário")
 user_name = st.sidebar.text_input("Nome", "Samuel Wilber")
-user_role = st.sidebar.selectbox("Perfil", ["Engenheiro", "Gestor"])
+user_role = st.sidebar.selectbox("Perfil", ["Engenheiro", "Técnico", "Gestor"])
 
 # --- NOTIFICAÇÕES (AVISOS NO CANTO ESQUERDO) ---
 st.sidebar.divider()
@@ -17,12 +17,31 @@ st.sidebar.warning("⚠️ 10 convênios precisam de notificação")
 st.sidebar.error("🚨 5 casos sem pagamento > 90 dias")
 
 # --- NAVEGAÇÃO ---
-menu_options = ["Geral", "Coordenações", "Vistorias"]
+menu_options = ["Geral", "Coordenações", "Vistorias", "Upload Painel"]  # Agora "Upload Painel" aparece para todos
 if user_role == "Gestor":
-    menu_options += ["Atribuição", "Upload Painel"]
+    menu_options += ["Atribuição"]
 menu = st.sidebar.radio("Menu Principal", menu_options)
 
-if 'main_df' not in st.session_state: st.session_state.main_df = pd.DataFrame()
+if 'main_df' not in st.session_state:
+    # Dados de teste iniciais (para você testar sem subir nada)
+    st.session_state.main_df = pd.DataFrame({
+        'no_instrumento': ['909561', '909562', pd.NA],
+        'no_proposta': [pd.NA, pd.NA, 'PROP001'],
+        'ano': [2023, 2023, 2024],
+        'objeto': ['Construção de escola', 'Reforma de hospital', 'Aquisição de equipamentos'],
+        'uf': ['SP', 'RJ', 'MG'],
+        'municipio': ['São Paulo', 'Rio de Janeiro', 'Belo Horizonte'],
+        'parlamentar': ['Dep. Silva', 'Dep. Santos', 'Dep. Oliveira'],
+        'valor_global': [1000000.0, 500000.0, 200000.0],
+        'status_painel': ['Em Execução', 'Prestação de Contas', 'Em Análise'],
+        'situacao_contratual': ['Celebrado', 'Celebrado', 'Cláusula Suspensiva'],
+        'eng_resp': [pd.NA, 'Samuel Wilber', pd.NA],
+        'tec_resp': [pd.NA, pd.NA, 'Samuel Wilber'],
+        'vistoria_resp': [pd.NA, pd.NA, 'Samuel Wilber'],  # Novo campo para responsável da vistoria
+    })
+if 'selected_id' not in st.session_state:
+    st.session_state.selected_id = None
+
 df = st.session_state.main_df
 
 # --- LÓGICA DE EDIÇÃO (O CORAÇÃO DO SISTEMA) ---
@@ -30,9 +49,9 @@ def render_detalhe(id_val, modo):
     """
     modo: 'leitura' (Geral), 'convenio' (Coordenações), 'vistoria' (Vistorias)
     """
-    row = df[df['no_instrumento'] == id_val].iloc[0]
+    row = df[(df['no_instrumento'] == id_val) | (df['no_proposta'] == id_val)].iloc[0]
     edicoes = get_edicoes(id_val)
-    fase = "Celebração" if pd.isna(row.get('no_instrumento')) or "SUSPENSIVA" in str(row.get('situacao')) else "Execução"
+    fase = "Celebração" if pd.isna(row.get('no_instrumento')) or "SUSPENSIVA" in str(row.get('situacao_contratual')) else "Execução"
     
     st.title(f"Convênio {id_val} - {fase}")
     
@@ -56,8 +75,10 @@ def render_detalhe(id_val, modo):
             val_painel = row.get('valor_global', 0)
             val_manual = st.number_input("Valor do Contrato (Manual)", value=float(edicoes.get('valor_contrato', val_painel)), 
                                         disabled=(modo == 'leitura' or modo == 'vistoria'))
-            if val_manual == val_painel: st.success("✅ Igual ao Painel")
-            else: st.error("⚠️ Diferente do Painel")
+            if val_manual == val_painel:
+                st.success("✅ Igual ao Painel")
+            else:
+                st.error("⚠️ Diferente do Painel")
             
             st.date_input("Data Aceite Plataforma", disabled=(modo == 'leitura' or modo == 'vistoria'))
         
@@ -99,6 +120,13 @@ elif menu == "Vistorias":
     st.header(f"🏗️ Minhas Vistorias - {user_name}")
     # Filtra por vistoria_resp == user_name
     # Ao clicar: render_detalhe(id, 'vistoria')
+
+elif menu == "Upload Painel":
+    st.header("📂 Upload de Planilhas")
+    files = st.file_uploader("Suba os 6 arquivos do Painel", accept_multiple_files=True)
+    if st.button("Processar Base"):
+        st.session_state.main_df = load_and_merge_all({f.name: f for f in files})
+        st.success("Base atualizada!")
 
 elif menu == "Atribuição":
     st.header("⚖️ Atribuição (Gestor)")
