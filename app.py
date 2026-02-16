@@ -176,9 +176,13 @@ if menu == "Geral":
         else:
             st.write(f"{len(res)} resultados encontrados.")
             for idx, r in res.iterrows():
-                id_v = r['no_instrumento'] if pd.notna(r['no_instrumento']) else r['no_proposta']
-                with st.expander(f"Convênio {id_v} - {r['municipio']} ({r['uf']})"):
-                    st.write(f"**Objeto:** {r['objeto']}")
+                # Usar .get() para evitar KeyError se coluna não existir
+                id_v = r.get('no_instrumento', r.get('no_proposta', f"idx_{idx}"))
+                municipio = r.get('municipio', 'N/A')
+                uf = r.get('uf', 'N/A')
+                objeto = r.get('objeto', 'N/A')
+                with st.expander(f"Convênio {id_v} - {municipio} ({uf})"):
+                    st.write(f"**Objeto:** {objeto}")
                     if st.button("Ver Detalhes", key=f"btn_{idx}_{id_v}"):
                         st.session_state.selected_id = id_v
                         st.rerun()
