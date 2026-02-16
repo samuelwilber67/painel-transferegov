@@ -108,13 +108,112 @@ def render_detalhe(id_val, modo):
 # --- RENDERIZAÇÃO DAS ABAS ---
 if menu == "Geral":
     st.header("🔍 Pesquisa Geral (Leitura)")
-    # Filtros aqui...
-    # Ao clicar em um convênio: render_detalhe(id, 'leitura')
+    with st.form("search_geral"):
+        st.write("### Filtros de Pesquisa")
+        c1, c2, c3, c4 = st.columns(4)
+        f_inst = c1.text_input("Nº Instrumento")
+        f_ano = c2.text_input("Ano")
+        f_obj = c3.text_input("Objeto")
+        f_proc = c4.text_input("Nº Processo")
+        
+        c5, c6, c7, c8 = st.columns(4)
+        f_uf = c5.multiselect("UF", df['uf'].unique())
+        f_mun = c6.text_input("Município")
+        f_parl = c7.text_input("Parlamentar")
+        f_val = c8.number_input("Valor Global", value=0.0)
+
+        st.write("---")
+        st.write("#### Filtros por Coordenação")
+        cc1, cc2, cc3 = st.columns(3)
+        with cc1:  # Celebração
+            f_pb_sit = st.text_input("Situação do Projeto Básico")
+            f_pb_ana = st.text_input("Analista do Projeto Básico (Eng. Atribuído - Celebração)")
+            f_pb_stat = st.text_input("Status da Análise do Projeto Básico")
+        with cc2:  # Execução
+            f_ex_fisc = st.text_input("Fiscal de Acompanhamento (Eng. Atribuído - Execução)")
+            f_ex_stat = st.text_input("Status da Execução")
+            f_ex_acao = st.text_input("Status Ação Convenente")
+            f_ex_obra = st.text_input("Status da Obra")
+        with cc3:  # Prestação de Contas
+            f_pc_fisc = st.text_input("Fiscal de Acompanhamento prestação de contas (Eng. Atribuído - Prestação de contas)")
+            f_pc_exec = st.text_input("Status de Execução prestação de contas")
+            f_pc_obra = st.text_input("Status da obra prestação de contas")
+            f_pc_stat = st.text_input("Status prestação de contas")
+
+        submitted = st.form_submit_button("🔍 Pesquisar")
+
+    if submitted or st.session_state.selected_id:
+        res = df.copy()
+        # Aplicação dos filtros
+        if f_inst:
+            res = res[res['no_instrumento'] == f_inst]
+        if f_ano:
+            res = res[res['ano'] == int(f_ano)]
+        if f_obj:
+            res = res[res['objeto'].str.contains(f_obj, case=False, na=False)]
+        if f_proc:
+            res = res[res['no_processo'].str.contains(f_proc, case=False, na=False)]
+        if f_uf:
+            res = res[res['uf'].isin(f_uf)]
+        if f_mun:
+            res = res[res['municipio'].str.contains(f_mun, case=False, na=False)]
+        if f_parl:
+            res = res[res['parlamentar'].str.contains(f_parl, case=False, na=False)]
+        if f_val > 0:
+            res = res[res['valor_global'] >= f_val]
+        # Adicione filtros por coordenação conforme necessário (exemplo simplificado)
+        if f_pb_sit:
+            res = res[res['situacao_pb'].str.contains(f_pb_sit, case=False, na=False)]
+        # ... (adicione os outros filtros de coordenação aqui)
+
+        if st.session_state.selected_id:
+            render_detalhe(st.session_state.selected_id, 'leitura')
+        else:
+            st.write(f"{len(res)} resultados encontrados.")
+            for idx, r in res.iterrows():
+                id_v = r['no_instrumento'] if pd.notna(r['no_instrumento']) else r['no_proposta']
+                with st.expander(f"Convênio {id_v} - {r['municipio']} ({r['uf']})"):
+                    st.write(f"**Objeto:** {r['objeto']}")
+                    if st.button("Ver Detalhes", key=f"btn_{idx}_{id_v}"):
+                        st.session_state.selected_id = id_v
+                        st.rerun()
 
 elif menu == "Coordenações":
-    st.header(f"📑 Meus Convênios - {user_name}")
-    # Filtra por eng_resp == user_name
-    # Ao clicar: render_detalhe(id, 'convenio')
+    st.header(f"📑 Coordenações - {user_name}")
+    
+    # Filtro de busca repetido
+    with st.expander("🔍 Filtros de Pesquisa"):
+        c1, c2 = st.columns(2)
+        f_mun = c1.text_input("Município", key="coord_mun")
+        f_inst = c2.text_input("Nº Instrumento", key="coord_inst")
+
+    tab_cel, tab_exe = st.tabs(["Celebração", "Execução"])
+    
+    # Filtra casos do usuário
+    meus_casos = df[(df['eng_resp'] == user_name) | (df['tec_resp'] == user_name)]
+    if f_mun:
+        meus_casos = meus_casos[meus_casos['municipio'].str.contains(f_mun, case=False, na=False)]
+    if f_inst:
+        meus_casos = meus_casos[(meus_casos['no_instrumento'] == f_inst) | (meus_casos['no_proposta'] == f_inst)]
+
+    if st.session_state.selected_id:
+        render_detalhe(st.session_state.selected_id, 'convenio')
+    else:
+        with tab_cel:
+            cols = ["no_instrumento", "ano", "uf", "municipio", "objeto", "status", "status_pb"]
+            st.table(meus_casos[[c for c in cols if c in meus_casos.columns]])
+            for idx, id_v in enumerate(meus_casos['no_instrumento'].dropna()):
+                if st.button(f"Ver/Editar {id_v}", key=f"cel_{idx}_{id_v}"):
+                    st.session_state.selected_id = id_v
+                    st.rerun()
+
+        with tab_exe:
+            cols = ["no_instrumento", "ano", "uf", "municipio", "objeto", "status_exec", "status_obra"]
+            st.table(meus_casos[[c for c in cols if c in meus_casos.columns]])
+            for idx, id_v in enumerate(meus_casos['no_instrumento'].dropna()):
+                if st.button(f"Ver/Editar {id_v}", key=f"exe_{idx}_{id_v}"):
+                    st.session_state.selected_id = id_v
+                    st.rerun()
 
 elif menu == "Vistorias":
     st.header(f"🏗️ Minhas Vistorias - {user_name}")
