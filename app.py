@@ -12,18 +12,18 @@ user_role = st.sidebar.selectbox("Perfil", ["Engenheiro", "Técnico", "Gestor"])
 # --- NOTIFICAÇÕES (AVISOS NO CANTO ESQUERDO) ---
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Avisos")
-# Exemplo de lógica de contagem (seria baseada no df real)
 st.sidebar.warning("⚠️ 10 convênios precisam de notificação")
 st.sidebar.error("🚨 5 casos sem pagamento > 90 dias")
 
 # --- NAVEGAÇÃO ---
-menu_options = ["Geral", "Coordenações", "Vistorias", "Upload Painel"]  # Agora "Upload Painel" aparece para todos
+menu_options = ["Geral", "Coordenações", "Vistorias", "Upload Painel"]
 if user_role == "Gestor":
     menu_options += ["Atribuição"]
 menu = st.sidebar.radio("Menu Principal", menu_options)
 
+# --- ESTADO DA SESSÃO ---
 if 'main_df' not in st.session_state:
-    # Dados de teste iniciais (para você testar sem subir nada)
+    # Dados de teste iniciais (com todas as colunas necessárias para evitar KeyError)
     st.session_state.main_df = pd.DataFrame({
         'no_instrumento': ['909561', '909562', pd.NA],
         'no_proposta': [pd.NA, pd.NA, 'PROP001'],
@@ -37,73 +37,77 @@ if 'main_df' not in st.session_state:
         'situacao_contratual': ['Celebrado', 'Celebrado', 'Cláusula Suspensiva'],
         'eng_resp': [pd.NA, 'Samuel Wilber', pd.NA],
         'tec_resp': [pd.NA, pd.NA, 'Samuel Wilber'],
-        'vistoria_resp': [pd.NA, pd.NA, 'Samuel Wilber'],  # Novo campo para responsável da vistoria
+        'vistoria_resp': [pd.NA, pd.NA, 'Samuel Wilber'],
+        'no_processo': [pd.NA, 'NUP123', pd.NA],  # Adicionado para filtros
+        'situacao_pb': [pd.NA, 'Aprovado', pd.NA],  # Adicionado para filtros
+        'status_exec': [pd.NA, 'Em Andamento', pd.NA],
+        'status_obra': [pd.NA, 'Em Andamento', pd.NA],
     })
 if 'selected_id' not in st.session_state:
     st.session_state.selected_id = None
 
 df = st.session_state.main_df
 
-# --- LÓGICA DE EDIÇÃO (O CORAÇÃO DO SISTEMA) ---
+# --- FUNÇÃO DE IDENTIFICAÇÃO DE FASE ---
+def identificar_fase(row):
+    status = str(row.get('status_painel', '')).upper()
+    sit_contratual = str(row.get('situacao_contratual', '')).upper()
+    if pd.isna(row.get('no_instrumento')) or "SUSPENSIVA" in sit_contratual:
+        return "Celebração"
+    elif "PRESTAÇÃO" in status:
+        return "Prestação de Contas"
+    else:
+        return "Execução"
+
+# --- VISÃO EXPANDIDA (DETALHE) ---
 def render_detalhe(id_val, modo):
-    """
-    modo: 'leitura' (Geral), 'convenio' (Coordenações), 'vistoria' (Vistorias)
-    """
-    row = df[(df['no_instrumento'] == id_val) | (df['no_proposta'] == id_val)].iloc[0]
-    edicoes = get_edicoes(id_val)
-    fase = "Celebração" if pd.isna(row.get('no_instrumento')) or "SUSPENSIVA" in str(row.get('situacao_contratual')) else "Execução"
-    
-    st.title(f"Convênio {id_val} - {fase}")
-    
-    # 1. CELEBRAÇÃO (Campos Azuis da Imagem)
-    if fase == "Celebração":
-        st.subheader("🔹 Etapa de Celebração")
-        c1, c2 = st.columns(2)
-        with c1:
-            notif_data = st.date_input("Data Última Notificação", disabled=(modo == 'leitura' or modo == 'vistoria'))
-            notif_qtd = st.number_input("Qtd Notificações", disabled=(modo == 'leitura' or modo == 'vistoria'))
-        with c2:
-            reit_data = st.date_input("Data Última Reiteração", disabled=(modo == 'leitura' or modo == 'vistoria'))
-            reit_qtd = st.number_input("Qtd Reiterações", disabled=(modo == 'leitura' or modo == 'vistoria'))
-
-    # 2. EXECUÇÃO (Campos Verdes/Roxos da Imagem)
-    elif fase == "Execução":
-        st.subheader("🟢 Etapa de Execução")
-        c1, c2 = st.columns(2)
-        with c1:
-            # ALERTA DE VALOR (Comparação manual vs painel)
-            val_painel = row.get('valor_global', 0)
-            val_manual = st.number_input("Valor do Contrato (Manual)", value=float(edicoes.get('valor_contrato', val_painel)), 
-                                        disabled=(modo == 'leitura' or modo == 'vistoria'))
-            if val_manual == val_painel:
-                st.success("✅ Igual ao Painel")
-            else:
-                st.error("⚠️ Diferente do Painel")
-            
-            st.date_input("Data Aceite Plataforma", disabled=(modo == 'leitura' or modo == 'vistoria'))
-        
-        with c2:
-            st.selectbox("Status da Obra", ["Não Iniciada", "Em Andamento", "Parada", "Finalizada"], 
-                         disabled=(modo == 'leitura' or modo == 'vistoria'))
-
-    # 3. QUADRO DE VISTORIAS (Editável apenas na aba Vistorias ou pelo Gestor)
-    st.divider()
-    st.subheader("🟣 Quadro de Vistorias")
-    can_edit_vistoria = (modo == 'vistoria' or user_role == "Gestor")
-    st.text_input("Tipo de Vistoria", disabled=not can_edit_vistoria)
-    st.date_input("Data da Vistoria", disabled=not can_edit_vistoria)
-    st.slider("% Execução", 0, 100, disabled=not can_edit_vistoria)
-
-    # 4. OBSERVAÇÕES COM HISTÓRICO
-    st.subheader("📝 Observações")
-    nova_obs = st.text_area("Adicionar Anotação", disabled=(modo == 'leitura'))
-    if st.button("Salvar Anotação", disabled=(modo == 'leitura')):
-        save_edicao_com_historico(id_val, "obs", nova_obs, user_name)
+    if st.button("⬅️ Voltar para a lista"):
+        st.session_state.selected_id = None
         st.rerun()
     
+    # Verificação se o convênio existe
+    filtered_df = df[(df['no_instrumento'] == id_val) | (df['no_proposta'] == id_val)]
+    if filtered_df.empty:
+        st.error(f"Convênio {id_val} não encontrado na base de dados.")
+        return
+    
+    row = filtered_df.iloc[0]
+    fase = identificar_fase(row)
+    edicoes = get_edicoes(id_val)
+    
+    st.header(f"📌 {fase}: {id_val}")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("🏛️ Dados Automáticos (Painel)")
+        st.info(f"**Objeto:** {row.get('objeto')}")
+        val_p = row.get('valor_global', 0)
+        st.write(f"**Valor Global (Painel):** R$ {val_p:,.2f}")
+        st.write(f"**UF/Município:** {row.get('uf')} / {row.get('municipio')}")
+        
+    with c2:
+        st.subheader("✍️ Dados Manuais (Gerencial)")
+        val_m = st.number_input("Valor Global Gerencial", value=float(edicoes.get('valor_manual', val_p)), disabled=(modo == 'leitura' or modo == 'vistoria'))
+        
+        if val_m == val_p:
+            st.success("✅ Igual ao Painel")
+        else:
+            st.error("⚠️ Diferente do Painel")
+        
+        obs = st.text_area("Observações/Anotações", value=edicoes.get('observacoes', ""), disabled=(modo == 'leitura'))
+        
+        if can_edit and st.button("Salvar Alterações"):
+            save_edicao_com_historico(id_val, "valor_manual", val_m, user_name)
+            save_edicao_com_historico(id_val, "observacoes", obs, user_name)
+            st.toast("Dados salvos e histórico registrado!")
+
+    st.divider()
+    st.subheader("📜 Histórico de Alterações")
     hist = get_historico(id_val)
     if not hist.empty:
-        st.table(hist[['data_hora', 'usuario', 'valor']])
+        st.dataframe(hist[['data_hora', 'usuario', 'campo', 'valor']], use_container_width=True)
+    else:
+        st.write("Sem registros anteriores.")
 
 # --- RENDERIZAÇÃO DAS ABAS ---
 if menu == "Geral":
@@ -117,8 +121,7 @@ if menu == "Geral":
         f_proc = c4.text_input("Nº Processo")
         
         c5, c6, c7, c8 = st.columns(4)
-        # Verificação para evitar KeyError se coluna não existir
-        uf_options = df['uf'].unique() if not df.empty and 'uf' in df.columns else []
+        uf_options = df['uf'].unique() if 'uf' in df.columns else []
         f_uf = c5.multiselect("UF", uf_options)
         f_mun = c6.text_input("Município")
         f_parl = c7.text_input("Parlamentar")
@@ -146,14 +149,14 @@ if menu == "Geral":
 
     if submitted or st.session_state.selected_id:
         res = df.copy()
-        # Aplicação dos filtros com verificação de coluna para evitar KeyError
+        # Aplicação dos filtros com verificação de coluna
         if f_inst and 'no_instrumento' in res.columns:
             res = res[res['no_instrumento'] == f_inst]
         if f_ano and 'ano' in res.columns:
             try:
                 res = res[res['ano'] == int(f_ano)]
             except ValueError:
-                pass  # Ignora se não for número
+                pass
         if f_obj and 'objeto' in res.columns:
             res = res[res['objeto'].str.contains(f_obj, case=False, na=False)]
         if f_proc and 'no_processo' in res.columns:
@@ -166,18 +169,17 @@ if menu == "Geral":
             res = res[res['parlamentar'].str.contains(f_parl, case=False, na=False)]
         if f_val > 0 and 'valor_global' in res.columns:
             res = res[res['valor_global'] >= f_val]
-        # Filtros por coordenação (exemplo simplificado, adicione verificações se necessário)
+        # Filtros por coordenação
         if f_pb_sit and 'situacao_pb' in res.columns:
             res = res[res['situacao_pb'].str.contains(f_pb_sit, case=False, na=False)]
-        # Adicione os outros filtros de coordenação aqui com verificações similares
+        # Adicione outros filtros similares aqui
 
         if st.session_state.selected_id:
             render_detalhe(st.session_state.selected_id, 'leitura')
         else:
             st.write(f"{len(res)} resultados encontrados.")
             for idx, r in res.iterrows():
-                # Usar .get() para evitar KeyError se coluna não existir
-                id_v = r.get('no_instrumento', r.get('no_proposta', f"idx_{idx}"))
+                id_v = r.get('no_instrumento') if pd.notna(r.get('no_instrumento')) else r.get('no_proposta', f"idx_{idx}")
                 municipio = r.get('municipio', 'N/A')
                 uf = r.get('uf', 'N/A')
                 objeto = r.get('objeto', 'N/A')
@@ -190,7 +192,7 @@ if menu == "Geral":
 elif menu == "Coordenações":
     st.header(f"📑 Coordenações - {user_name}")
     
-    # Filtro de busca repetido
+    # Filtro de busca
     with st.expander("🔍 Filtros de Pesquisa"):
         c1, c2 = st.columns(2)
         f_mun = c1.text_input("Município", key="coord_mun")
@@ -209,7 +211,7 @@ elif menu == "Coordenações":
         render_detalhe(st.session_state.selected_id, 'convenio')
     else:
         with tab_cel:
-            cols = ["no_instrumento", "ano", "uf", "municipio", "objeto", "status", "status_pb"]
+            cols = ["no_instrumento", "ano", "uf", "municipio", "objeto", "status_painel", "situacao_pb"]
             st.table(meus_casos[[c for c in cols if c in meus_casos.columns]])
             for idx, id_v in enumerate(meus_casos['no_instrumento'].dropna()):
                 if st.button(f"Ver/Editar {id_v}", key=f"cel_{idx}_{id_v}"):
@@ -227,7 +229,20 @@ elif menu == "Coordenações":
 elif menu == "Vistorias":
     st.header(f"🏗️ Minhas Vistorias - {user_name}")
     # Filtra por vistoria_resp == user_name
-    # Ao clicar: render_detalhe(id, 'vistoria')
+    vistorias = df[df['vistoria_resp'] == user_name]
+    if vistorias.empty:
+        st.info("Você não possui vistorias atribuídas.")
+    else:
+        for idx, r in vistorias.iterrows():
+            id_v = r.get('no_instrumento') if pd.notna(r.get('no_instrumento')) else r.get('no_proposta', f"idx_{idx}")
+            with st.expander(f"Vistoria {id_v} - {r.get('municipio', 'N/A')} ({r.get('uf', 'N/A')})"):
+                st.write(f"**Objeto:** {r.get('objeto', 'N/A')}")
+                if st.button("Ver/Editar Vistoria", key=f"vis_{idx}_{id_v}"):
+                    st.session_state.selected_id = id_v
+                    st.rerun()
+    
+    if st.session_state.selected_id:
+        render_detalhe(st.session_state.selected_id, 'vistoria')
 
 elif menu == "Upload Painel":
     st.header("📂 Upload de Planilhas")
@@ -242,5 +257,11 @@ elif menu == "Atribuição":
     eng = st.text_input("Engenheiro Responsável")
     vis = st.text_input("Engenheiro da Vistoria")
     if st.button("Atribuir"):
-        # Salva eng_resp e vistoria_resp no db_atribuicao
+        # Salva no CSV
+        df_attr = pd.DataFrame([[inst, eng, vis]], columns=["no_instrumento", "eng_resp", "vistoria_resp"])
+        if os.path.exists("db_atribuicao.csv"):
+            old = pd.read_csv("db_atribuicao.csv", dtype={'no_instrumento': str})
+            old = old[old['no_instrumento'] != inst]
+            df_attr = pd.concat([old, df_attr], ignore_index=True)
+        df_attr.to_csv("db_atribuicao.csv", index=False)
         st.success("Atribuído com sucesso!")
